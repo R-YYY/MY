@@ -1065,6 +1065,29 @@ void QuadrupleTranslator::parse() {
                 printStateStack(stateStack);
                 printSymbolStack(symbolStack);
             }
+            else if (production == "S-><<LABEL>>S") {
+                //CORE:{38}【label语句归约为statement】 S-><<LABEL>>S
+
+                // 一共2个符号：一共需要弹出2次
+                // LABEL(1) S(0)
+                Symbol label,statement;
+                for (int count = 0; count < 2; ++count) {
+                    if (count == 0)
+                        statement = symbolStack.top();
+                    else if (count == 1)
+                        label = symbolStack.top();
+                    symbolStack.pop();
+                    stateStack.pop();
+                }
+
+                ///////////////////////
+
+                ///////////////////////
+
+                cout << " => 规约后的新状态是 " << stateStack.top() << endl;
+                printStateStack(stateStack);
+                printSymbolStack(symbolStack);
+            }
             /**
              * 还没完。。但是先把结束态写了。
              */
