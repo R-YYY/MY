@@ -1001,7 +1001,32 @@ void QuadrupleTranslator::parse() {
                 cout << " => 规约后的新状态是 " << stateStack.top() << endl;
                 printStateStack(stateStack);
                 printSymbolStack(symbolStack);
-            } else if (production == "<<LABEL>>-><<ID>>:") {
+            }    else if (production == "S-><<LABEL>>S") {
+                //CORE:{38}【label语句归约为statement】 S-><<LABEL>>S
+
+                // 一共2个符号：一共需要弹出2次
+                // LABEL(1) S(0)
+                Symbol label,statement;
+                for (int count = 0; count < 2; ++count) {
+                    if (count == 0)
+                        statement = symbolStack.top();
+                    else if (count == 1)
+                        label = symbolStack.top();
+                    symbolStack.pop();
+                    stateStack.pop();
+                }
+
+                //常规
+                symbolStack.push(Symbol{reduceTerm.leftPart});
+                curState = stateStack.top();
+                stateStack.push(
+                        GotoTable[curState][VnToIndex[symbolStack.top().name]]);
+
+                cout << " => 规约后的新状态是 " << stateStack.top() << endl;
+                printStateStack(stateStack);
+                printSymbolStack(symbolStack);
+            }
+            else if (production == "<<LABEL>>-><<ID>>:") {
                 // CORE:{20} LABEL语句
                 symbolStack.pop();
                 stateStack.pop();
@@ -1009,25 +1034,79 @@ void QuadrupleTranslator::parse() {
                 symbolStack.pop();
                 stateStack.pop();
 
+                //常规
+                symbolStack.push(Symbol{reduceTerm.leftPart});
+                curState = stateStack.top();
+                stateStack.push(
+                        GotoTable[curState][VnToIndex[symbolStack.top().name]]);
+
                 // label分三种情况：
                 // ① label已定义(已有跳转地址，重新赋跳转地址)则报错
-                // ② label已在符号表中，但是没有地址，赋地址
+                // ② label已在符号表中，但是没有地址，赋地址，标为已定义
                 //      (这是先有goto label再label: ...的情况)
-                // ③ label不在符号表中，加入符号表
-                //      (这是现有label: ...的情况)
+                // ③ label不在符号表中，加入符号表，且标为已定义
+                //      (这是先有label: ...的情况)
                 if (labelTable.count(label.name) != 0) {
                     if (labelTable[label.name].isDefined) {
                         std::cerr << "重复定义label\n";
                         checkError(0);
                     } else {
-                        // 这里是已经有goto该label但是label本身还没有定义
+                        // 这里是已经有goto该label但是label本身还没有定义，标为已定义
+                        labelTable[label.name].isDefined = true;
                         labelTable[label.name].quad = nextQuad;
                         backPatch(labelTable[label.name].nextList, nextQuad);
                     }
                 } else {
-                    // 还没有别的四元式goto到该label，所以先赋一个地址
+                    // 还没有别的四元式goto到该label，所以先赋一个地址，且标为已定义
+                    labelTable[label.name].isDefined = true;
                     labelTable[label.name].quad = nextQuad;
                 }
+            }
+            else if (production == "S->goto<<ID>>") {
+                //CORE:{39}【goto语句归约为statement】 S->goto<<ID>>
+
+                // 一共2个符号：一共需要弹出2次
+                // goto(1) S(0)
+                Symbol label;
+                for (int count = 0; count < 2; ++count) {
+                    if (count == 0)
+                        label = symbolStack.top();
+                    symbolStack.pop();
+                    stateStack.pop();
+                }
+
+                //常规
+                symbolStack.push(Symbol{reduceTerm.leftPart});
+                curState = stateStack.top();
+                stateStack.push(
+                        GotoTable[curState][VnToIndex[symbolStack.top().name]]);
+
+                //判断label是否在符号表中且是否定义
+                //① label在表中，已定义（先label，后goto）
+                //② label在表中，未定义（先goto，后label）
+                //③ label不在表中（先goto，后label，且是第一次goto该label）
+                if(labelTable.count(label.name) != 0){
+                    if (labelTable[label.name].isDefined) {
+                        //① 在表中，已定义：生成四元式，跳转地址已确定
+                        generateIntermediateCode("j", "-", false, "-", false, labelTable[label.name].quad);
+                    }
+                    else{
+                        //② 在表中，未定义：生成四元式，跳转地址待回填
+                        int lastList = labelTable[label.name].nextList;
+                        labelTable[label.name].nextList = nextQuad;
+                        generateIntermediateCode("j", "-", false, "-", false, lastList);
+                    }
+                }
+                else{
+                    //③ 不在表中，首次goto该label：填入表，标为未定义，地址为nextQuad，生成四元式，回填地址为0
+                    labelTable[label.name].isDefined = false;
+                    labelTable[label.name].nextList = nextQuad;
+                    generateIntermediateCode("j", "-", false, "-", false, 0);
+                }
+
+                cout << " => 规约后的新状态是 " << stateStack.top() << endl;
+                printStateStack(stateStack);
+                printSymbolStack(symbolStack);
             }
             else if (production == "S->whileM<<BEXPR>>doMS") {
                 //CORE:{36}【语义分析】while语句 S->whileM<<BEXPR>>doMS
@@ -1060,29 +1139,6 @@ void QuadrupleTranslator::parse() {
                 symbolStack.top().nextList=booleanExpr.falseExit;
 
                 generateIntermediateCode("j", "-", false, "-", false, M1.quad);
-
-                cout << " => 规约后的新状态是 " << stateStack.top() << endl;
-                printStateStack(stateStack);
-                printSymbolStack(symbolStack);
-            }
-            else if (production == "S-><<LABEL>>S") {
-                //CORE:{38}【label语句归约为statement】 S-><<LABEL>>S
-
-                // 一共2个符号：一共需要弹出2次
-                // LABEL(1) S(0)
-                Symbol label,statement;
-                for (int count = 0; count < 2; ++count) {
-                    if (count == 0)
-                        statement = symbolStack.top();
-                    else if (count == 1)
-                        label = symbolStack.top();
-                    symbolStack.pop();
-                    stateStack.pop();
-                }
-
-                ///////////////////////
-
-                ///////////////////////
 
                 cout << " => 规约后的新状态是 " << stateStack.top() << endl;
                 printStateStack(stateStack);
